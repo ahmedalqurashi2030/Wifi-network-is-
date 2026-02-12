@@ -1,7 +1,7 @@
 Config({
     "network-name": "شبكة دارك نت",
     "service-number": "735501599",
-    "login-type": "both", 
+    "login-type": "username", 
     "speed-select": 0 ,
     "speed-var": "speed",
     "speed-option": "",
