@@ -12,6 +12,7 @@ import threading
 HOST = "127.0.0.1"
 HTTP_PORT = 8080
 BANNER_PORT = 2222
+VULN_PORT = 9090
 
 
 class LabHandler(BaseHTTPRequestHandler):
@@ -86,9 +87,29 @@ def banner_server():
                 conn.sendall(b"SSH-2.0-OpenSSH_7.2p2 Ubuntu-4ubuntu2.10\r\n")
 
 
+def vulnerability_marker_server():
+    """Immediate banner used only by the custom OpenVAS/NASL coursework check.
+
+    The marker represents an intentionally risky training configuration. It is
+    synthetic and is not mapped to a real CVE.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((HOST, VULN_PORT))
+        sock.listen(20)
+        while True:
+            conn, _addr = sock.accept()
+            with conn:
+                conn.sendall(
+                    b"CYBERLAB-VULN-TEST/1.0 risk=weak-training-configuration; scope=localhost-only\r\n"
+                )
+
+
 if __name__ == "__main__":
     threading.Thread(target=banner_server, daemon=True).start()
+    threading.Thread(target=vulnerability_marker_server, daemon=True).start()
     server = HTTPServer((HOST, HTTP_PORT), LabHandler)
     print(f"Controlled HTTP target listening on http://{HOST}:{HTTP_PORT}", flush=True)
     print(f"Synthetic banner service listening on {HOST}:{BANNER_PORT}", flush=True)
+    print(f"Synthetic vulnerability marker listening on {HOST}:{VULN_PORT}", flush=True)
     server.serve_forever()
