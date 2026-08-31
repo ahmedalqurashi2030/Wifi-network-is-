@@ -1,0 +1,67 @@
+name: OpenVAS Course Lab - Controlled Local Target
+
+on:
+  push:
+    branches:
+      - ethical-hacking-midterm-lab
+    paths:
+      - 'ethical-hacking-lab/openvas_http_check.nasl'
+      - '.github/workflows/openvas-course-lab.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  openvas-lab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install OpenVAS scanner engine and screenshot tools
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            openvas-scanner xvfb xterm scrot fonts-dejavu-core
+          openvas-nasl -V | tee openvas_version.txt
+
+      - name: Start controlled localhost web target
+        run: |
+          python3 ethical-hacking-lab/http_target.py > http_target.log 2>&1 &
+          echo $! > /tmp/http_target.pid
+          sleep 2
+          ss -lnt | grep '127.0.0.1:8080'
+
+      - name: Validate NASL syntax
+        run: |
+          openvas-nasl -L -X ethical-hacking-lab/openvas_http_check.nasl
+
+      - name: Execute OpenVAS NASL assessment
+        run: |
+          {
+            echo '$ sudo openvas-nasl -X -t 127.0.0.1 ethical-hacking-lab/openvas_http_check.nasl'
+            sudo openvas-nasl -X -t 127.0.0.1 ethical-hacking-lab/openvas_http_check.nasl
+          } 2>&1 | tee 06_vulnerability_openvas.txt
+
+      - name: Capture real terminal evidence
+        run: |
+          chmod +x ethical-hacking-lab/capture_terminal.sh
+          ethical-hacking-lab/capture_terminal.sh \
+            "$PWD/06_vulnerability_openvas.txt" \
+            "$PWD/06_vulnerability_openvas.png" \
+            "06_vulnerability_openvas"
+          test -s 06_vulnerability_openvas.png
+
+      - name: Upload OpenVAS evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: openvas-course-evidence
+          path: |
+            openvas_version.txt
+            06_vulnerability_openvas.txt
+            06_vulnerability_openvas.png
+          if-no-files-found: error
+          retention-days: 14
