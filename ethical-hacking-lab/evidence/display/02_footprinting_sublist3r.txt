@@ -1,0 +1,6 @@
+$ python3 sublist3r.py -d nmap.org -t 10
+# Passive public-source subdomain enumeration.
+[-] Enumerating subdomains now for nmap.org
+[-] Total Unique Subdomains Found: 2
+scanme.nmap.org
+svn.nmap.org

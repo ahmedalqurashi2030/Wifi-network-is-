@@ -1,0 +1,7 @@
+$ smbclient -L //127.0.0.1 -N -p 445
+
+	Sharename       Type      Comment
+	---------       ----      -------
+	public          Disk      
+	IPC$            IPC       IPC Service (CEH Controlled SMB Lab)
+SMB1 disabled -- no workgroup available

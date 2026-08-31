@@ -1,0 +1,8 @@
+$ uv run theHarvester -d nmap.org -b crtsh,certspotter --limit 30
+# Passive P0 sources only; no active probing.
+[*] Activity: P0 passive collection
+[*] Target: nmap.org 
+[*] Hosts found: 3
+issues.nmap.org
+svn.nmap.org
+www.nmap.org

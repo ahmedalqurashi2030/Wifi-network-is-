@@ -1,0 +1,25 @@
+=== Local lab listeners ===
+udp   UNCONN 0      0            127.0.0.1:161       0.0.0.0:*    users:(("snmpd",pid=5455,fd=6))          
+tcp   LISTEN 0      5            127.0.0.1:8080      0.0.0.0:*    users:(("python3",pid=5424,fd=4))        
+tcp   LISTEN 0      50           127.0.0.1:445       0.0.0.0:*    users:(("smbd",pid=5444,fd=29))          
+tcp   LISTEN 0      20           127.0.0.1:2222      0.0.0.0:*    users:(("python3",pid=5424,fd=3))        
+
+=== HTTP check ===
+HTTP/1.0 200 OK
+Server: Apache/2.2.8 (Ubuntu) DAV/2
+Date: Mon, 31 Aug 2026 23:23:12 GMT
+Content-Type: text/html; charset=utf-8
+X-Powered-By: PHP/5.2.4-2ubuntu5.10
+Content-Length: 0
+
+
+=== SMB check ===
+
+	Sharename       Type      Comment
+	---------       ----      -------
+	public          Disk      
+	IPC$            IPC       IPC Service (CEH Controlled SMB Lab)
+SMB1 disabled -- no workgroup available
+
+=== SNMP check ===
+iso.3.6.1.2.1.1.5.0 = STRING: "CEH-Lab-Target"

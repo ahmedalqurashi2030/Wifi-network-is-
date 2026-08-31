@@ -1,0 +1,34 @@
+$ uv run theHarvester -d nmap.org -b crtsh,certspotter --limit 30
+# Passive P0 sources only; no active probing.
+*******************************************************************
+*  _   _                                            _             *
+* | |_| |__   ___    /\  /\__ _ _ ____   _____  ___| |_ ___ _ __  *
+* | __|  _ \ / _ \  / /_/ / _` | '__\ \ / / _ \/ __| __/ _ \ '__| *
+* | |_| | | |  __/ / __  / (_| | |   \ V /  __/\__ \ ||  __/ |    *
+*  \__|_| |_|\___| \/ /_/ \__,_|_|    \_/ \___||___/\__\___|_|    *
+*                                                                 *
+* theHarvester 5.0.0                                              *
+* Coded by Christian Martorella                                   *
+* Edge-Security Research                                          *
+* cmartorella@edge-security.com                                   *
+*                                                                 *
+*******************************************************************
+[*] Activity: P0 passive collection
+
+[*] Target: nmap.org 
+
+[*] Source workers: requested=3; effective=2.
+[*] Searching Certspotter. 
+[*] Searching Crtsh. 
+
+[*] No IPs found.
+
+[*] No emails found.
+
+[*] No people found.
+
+[*] Hosts found: 3
+---------------------
+issues.nmap.org
+svn.nmap.org
+www.nmap.org
