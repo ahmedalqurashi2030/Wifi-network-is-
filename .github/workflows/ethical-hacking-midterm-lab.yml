@@ -1,0 +1,243 @@
+name: Ethical Hacking Midterm - Controlled Lab
+
+on:
+  push:
+    branches:
+      - ethical-hacking-midterm-lab
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  practical-lab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout lab branch
+        uses: actions/checkout@v4
+
+      - name: Prepare evidence folders
+        run: |
+          mkdir -p evidence/raw evidence/display evidence/screenshots evidence/meta
+          {
+            echo "Ethical Hacking Midterm - Controlled Local Lab"
+            echo "Date (UTC): $(date -u '+%Y-%m-%d %H:%M:%S')"
+            echo "Runner: $(uname -a)"
+            echo "Scope: localhost only for active scanning; passive public sources only for footprinting"
+          } | tee evidence/meta/environment.txt
+
+      - name: Install course tools
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            nmap hping3 nikto samba smbclient snmp snmpd \
+            xvfb xterm scrot fonts-dejavu-core \
+            python3-pip python3-venv git curl jq
+          {
+            echo "=== Installed tool versions ==="
+            nmap --version | head -n 2
+            hping3 --version 2>&1 | head -n 2 || true
+            nikto -Version 2>&1 | head -n 4 || true
+            smbclient --version
+            snmpwalk --version 2>&1 | head -n 3
+          } | tee evidence/meta/tool_versions.txt
+
+      - name: Install passive footprinting tools
+        run: |
+          set -e
+          git clone --depth 1 https://github.com/aboul3la/Sublist3r.git /tmp/Sublist3r
+          python3 -m venv /tmp/sublist3r-venv
+          source /tmp/sublist3r-venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r /tmp/Sublist3r/requirements.txt
+          deactivate
+
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          git clone --depth 1 https://github.com/laramies/theHarvester.git /tmp/theHarvester
+          cd /tmp/theHarvester
+          uv sync --python 3.14
+          cd "$GITHUB_WORKSPACE"
+
+      - name: Build localhost-only target services
+        run: |
+          set -e
+          python3 ethical-hacking-lab/http_target.py > evidence/raw/http_target_service.log 2>&1 &
+          echo $! > /tmp/http_target.pid
+
+          sudo mkdir -p /tmp/cyberlab-share
+          echo "Authorized coursework share - synthetic data only" | sudo tee /tmp/cyberlab-share/README.txt >/dev/null
+          sudo chmod 755 /tmp/cyberlab-share
+          cat > /tmp/smb-lab.conf <<'EOF'
+          [global]
+            workgroup = WORKGROUP
+            server string = CEH Controlled SMB Lab
+            server role = standalone server
+            security = user
+            map to guest = Bad User
+            guest account = nobody
+            interfaces = lo
+            bind interfaces only = yes
+            smb ports = 445
+            disable netbios = yes
+            log file = /tmp/smb-lab.log
+            logging = file
+
+          [public]
+            path = /tmp/cyberlab-share
+            browseable = yes
+            guest ok = yes
+            read only = yes
+          EOF
+          sudo smbd -D -s /tmp/smb-lab.conf
+
+          sudo systemctl stop snmpd 2>/dev/null || true
+          cat > /tmp/snmpd-lab.conf <<'EOF'
+          agentAddress udp:127.0.0.1:161
+          rocommunity public 127.0.0.1
+          sysLocation Controlled Ethical Hacking Lab
+          sysContact coursework@cyberlab.local
+          sysName CEH-Lab-Target
+          EOF
+          sudo /usr/sbin/snmpd -f -Lo -C -c /tmp/snmpd-lab.conf > evidence/raw/snmpd_service.log 2>&1 &
+          echo $! > /tmp/snmpd.pid
+
+          sleep 3
+          {
+            echo "=== Local lab listeners ==="
+            sudo ss -lntup | grep -E '(:8080|:2222|:445|:161)' || true
+            echo
+            echo "=== HTTP check ==="
+            curl -sS -I http://127.0.0.1:8080/
+            echo
+            echo "=== SMB check ==="
+            smbclient -L //127.0.0.1 -N -p 445
+            echo
+            echo "=== SNMP check ==="
+            snmpwalk -v2c -c public 127.0.0.1 1.3.6.1.2.1.1.5.0
+          } | tee evidence/meta/lab_verification.txt
+
+      - name: Footprinting - theHarvester
+        continue-on-error: true
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          {
+            echo '$ uv run theHarvester -d nmap.org -b crtsh,certspotter --limit 30'
+            echo '# Passive P0 sources only; no active probing.'
+            cd /tmp/theHarvester
+            timeout 300 uv run theHarvester -d nmap.org -b crtsh,certspotter --limit 30
+          } 2>&1 | tee "$GITHUB_WORKSPACE/evidence/raw/01_footprinting_theharvester.txt"
+
+      - name: Footprinting - Sublist3r
+        continue-on-error: true
+        run: |
+          source /tmp/sublist3r-venv/bin/activate
+          {
+            echo '$ python3 sublist3r.py -d nmap.org -t 10'
+            echo '# Passive public-source subdomain enumeration.'
+            timeout 300 python3 /tmp/Sublist3r/sublist3r.py -d nmap.org -t 10
+          } 2>&1 | tee evidence/raw/02_footprinting_sublist3r.txt
+          deactivate
+
+      - name: Network Scanning - Nmap
+        run: |
+          {
+            echo '$ sudo nmap -sS -sV -p 445,8080,2222 127.0.0.1'
+            sudo nmap -sS -sV -p 445,8080,2222 127.0.0.1
+          } 2>&1 | tee evidence/raw/03_scanning_nmap.txt
+
+      - name: Network Scanning - Hping3
+        run: |
+          {
+            echo '$ sudo hping3 -S -p 8080 -c 3 127.0.0.1'
+            sudo hping3 -S -p 8080 -c 3 127.0.0.1
+          } 2>&1 | tee evidence/raw/04_scanning_hping3.txt
+
+      - name: Vulnerability Scanning - Nikto
+        continue-on-error: true
+        run: |
+          {
+            echo '$ nikto -h http://127.0.0.1:8080 -ask no -maxtime 2m'
+            nikto -h http://127.0.0.1:8080 -ask no -maxtime 2m
+          } 2>&1 | tee evidence/raw/05_vulnerability_nikto.txt
+
+      - name: Vulnerability Scanning - Nmap NSE
+        run: |
+          {
+            echo '$ sudo nmap -sV -p 8080 --script http-security-headers,http-methods,http-enum 127.0.0.1'
+            sudo nmap -sV -p 8080 --script http-security-headers,http-methods,http-enum 127.0.0.1
+          } 2>&1 | tee evidence/raw/06_vulnerability_nmap_nse.txt
+
+      - name: Enumeration - smbclient
+        run: |
+          {
+            echo '$ smbclient -L //127.0.0.1 -N -p 445'
+            smbclient -L //127.0.0.1 -N -p 445
+          } 2>&1 | tee evidence/raw/07_enumeration_smbclient.txt
+
+      - name: Enumeration - SnmpWalk
+        run: |
+          {
+            echo '$ snmpwalk -v2c -c public 127.0.0.1 1.3.6.1.2.1.1'
+            snmpwalk -v2c -c public 127.0.0.1 1.3.6.1.2.1.1
+          } 2>&1 | tee evidence/raw/08_enumeration_snmpwalk.txt
+
+      - name: Prepare concise terminal evidence
+        if: always()
+        run: |
+          set +e
+          for f in evidence/raw/0*.txt; do
+            [ -f "$f" ] || continue
+            base="$(basename "$f")"
+            {
+              sed -n '1,52p' "$f"
+              lines=$(wc -l < "$f")
+              if [ "$lines" -gt 52 ]; then
+                echo
+                echo "... output shortened for screenshot; complete raw output retained ..."
+              fi
+            } > "evidence/display/$base"
+          done
+
+      - name: Capture terminal screenshots
+        if: always()
+        run: |
+          chmod +x ethical-hacking-lab/capture_terminal.sh
+          for f in evidence/display/0*.txt; do
+            [ -f "$f" ] || continue
+            base="$(basename "$f" .txt)"
+            echo "Capturing $base"
+            timeout 12 ethical-hacking-lab/capture_terminal.sh "$PWD/$f" "$PWD/evidence/screenshots/${base}.png" "$base" || true
+          done
+          ls -lh evidence/screenshots || true
+
+      - name: Build execution summary
+        if: always()
+        run: |
+          {
+            echo '# Ethical Hacking Midterm - Execution Evidence'
+            echo
+            echo 'Active scans were restricted to 127.0.0.1 on the GitHub-hosted runner. Footprinting used passive public sources only.'
+            echo
+            echo '## Required topics and executed tools'
+            echo '- Footprinting: theHarvester, Sublist3r'
+            echo '- Network Scanning: Nmap, Hping3'
+            echo '- Vulnerability Scanning: Nikto, Nmap NSE HTTP assessment scripts'
+            echo '- Enumeration: smbclient, SnmpWalk'
+            echo
+            echo '## Evidence files'
+            for f in evidence/raw/0*.txt; do
+              [ -f "$f" ] && echo "- $(basename "$f")"
+            done
+          } > evidence/EXECUTION_SUMMARY.md
+
+      - name: Upload lab evidence artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ethical-hacking-midterm-evidence
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 14
