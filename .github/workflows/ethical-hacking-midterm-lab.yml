@@ -4,10 +4,12 @@ on:
   push:
     branches:
       - ethical-hacking-midterm-lab
+    paths-ignore:
+      - 'ethical-hacking-lab/evidence/**'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   practical-lab:
@@ -20,12 +22,13 @@ jobs:
 
       - name: Prepare evidence folders
         run: |
+          rm -rf evidence
           mkdir -p evidence/raw evidence/display evidence/screenshots evidence/meta
           {
             echo "Ethical Hacking Midterm - Controlled Local Lab"
             echo "Date (UTC): $(date -u '+%Y-%m-%d %H:%M:%S')"
             echo "Runner: $(uname -a)"
-            echo "Scope: localhost only for active scanning; passive public sources only for footprinting"
+            echo "Scope: active scanning restricted to localhost; footprinting uses passive public sources only"
           } | tee evidence/meta/environment.txt
 
       - name: Install course tools
@@ -67,6 +70,10 @@ jobs:
           python3 ethical-hacking-lab/http_target.py > evidence/raw/http_target_service.log 2>&1 &
           echo $! > /tmp/http_target.pid
 
+          # Stop distro Samba first so only the controlled configuration owns TCP/445.
+          sudo systemctl stop smbd nmbd samba-ad-dc 2>/dev/null || true
+          sudo pkill -x smbd 2>/dev/null || true
+          sudo pkill -x nmbd 2>/dev/null || true
           sudo mkdir -p /tmp/cyberlab-share
           echo "Authorized coursework share - synthetic data only" | sudo tee /tmp/cyberlab-share/README.txt >/dev/null
           sudo chmod 755 /tmp/cyberlab-share
@@ -78,10 +85,13 @@ jobs:
             security = user
             map to guest = Bad User
             guest account = nobody
-            interfaces = lo
+            interfaces = 127.0.0.1/8
             bind interfaces only = yes
             smb ports = 445
             disable netbios = yes
+            load printers = no
+            disable spoolss = yes
+            printcap name = /dev/null
             log file = /tmp/smb-lab.log
             logging = file
 
@@ -94,6 +104,7 @@ jobs:
           sudo smbd -D -s /tmp/smb-lab.conf
 
           sudo systemctl stop snmpd 2>/dev/null || true
+          sudo pkill -x snmpd 2>/dev/null || true
           cat > /tmp/snmpd-lab.conf <<'EOF'
           agentAddress udp:127.0.0.1:161
           rocommunity public 127.0.0.1
@@ -118,6 +129,14 @@ jobs:
             echo "=== SNMP check ==="
             snmpwalk -v2c -c public 127.0.0.1 1.3.6.1.2.1.1.5.0
           } | tee evidence/meta/lab_verification.txt
+
+          # Hard fail if the intended local SMB share is not visible.
+          smbclient -L //127.0.0.1 -N -p 445 | grep -q 'public'
+          # Hard fail if Samba escaped localhost binding.
+          if sudo ss -lntp '( sport = :445 )' | grep -E '0\.0\.0\.0:445|\[::\]:445'; then
+            echo 'ERROR: SMB listener is not loopback-only.' >&2
+            exit 1
+          fi
 
       - name: Footprinting - theHarvester
         continue-on-error: true
@@ -159,15 +178,15 @@ jobs:
         continue-on-error: true
         run: |
           {
-            echo '$ nikto -h http://127.0.0.1:8080 -ask no -maxtime 2m'
-            nikto -h http://127.0.0.1:8080 -ask no -maxtime 2m
+            echo '$ timeout 120 nikto -h http://127.0.0.1:8080 -ask no'
+            timeout 120 nikto -h http://127.0.0.1:8080 -ask no
           } 2>&1 | tee evidence/raw/05_vulnerability_nikto.txt
 
       - name: Vulnerability Scanning - Nmap NSE
         run: |
           {
-            echo '$ sudo nmap -sV -p 8080 --script http-security-headers,http-methods,http-enum 127.0.0.1'
-            sudo nmap -sV -p 8080 --script http-security-headers,http-methods,http-enum 127.0.0.1
+            echo '$ sudo nmap -sV -p 8080 --script http-methods,http-headers 127.0.0.1'
+            sudo nmap -sV -p 8080 --script http-methods,http-headers 127.0.0.1
           } 2>&1 | tee evidence/raw/06_vulnerability_nmap_nse.txt
 
       - name: Enumeration - smbclient
@@ -188,38 +207,56 @@ jobs:
         if: always()
         run: |
           set +e
-          for f in evidence/raw/0*.txt; do
-            [ -f "$f" ] || continue
-            base="$(basename "$f")"
-            {
-              sed -n '1,52p' "$f"
-              lines=$(wc -l < "$f")
-              if [ "$lines" -gt 52 ]; then
-                echo
-                echo "... output shortened for screenshot; complete raw output retained ..."
-              fi
-            } > "evidence/display/$base"
+          strip_ansi() { sed -r 's/\x1B\[[0-9;?]*[ -\/]*[@-~]//g'; }
+
+          {
+            sed -n '1,2p' evidence/raw/01_footprinting_theharvester.txt
+            strip_ansi < evidence/raw/01_footprinting_theharvester.txt | grep -E '^\[\*\] (Activity|Target|Hosts found)|^issues\.nmap\.org$|^svn\.nmap\.org$|^www\.nmap\.org$' || true
+          } > evidence/display/01_footprinting_theharvester.txt
+
+          {
+            sed -n '1,2p' evidence/raw/02_footprinting_sublist3r.txt
+            strip_ansi < evidence/raw/02_footprinting_sublist3r.txt | grep -E 'Enumerating subdomains|Total Unique Subdomains Found|^[A-Za-z0-9.-]+\.nmap\.org$' || true
+          } > evidence/display/02_footprinting_sublist3r.txt
+
+          cp evidence/raw/03_scanning_nmap.txt evidence/display/03_scanning_nmap.txt
+          cp evidence/raw/04_scanning_hping3.txt evidence/display/04_scanning_hping3.txt
+
+          {
+            grep -E '^\$|^- Nikto|Target IP:|Target Hostname:|Target Port:|Server:|x-powered-by|X-Frame-Options|robots\.txt|appears to be outdated|Allowed HTTP Methods|OSVDB-3092|items checked|host\(s\) tested' evidence/raw/05_vulnerability_nikto.txt || true
+          } > evidence/display/05_vulnerability_nikto.txt
+
+          cp evidence/raw/06_vulnerability_nmap_nse.txt evidence/display/06_vulnerability_nmap_nse.txt
+          cp evidence/raw/07_enumeration_smbclient.txt evidence/display/07_enumeration_smbclient.txt
+          sed -n '1,16p' evidence/raw/08_enumeration_snmpwalk.txt > evidence/display/08_enumeration_snmpwalk.txt
+
+          for f in evidence/display/0*.txt; do
+            tmp="$f.tmp"
+            strip_ansi < "$f" > "$tmp"
+            mv "$tmp" "$f"
           done
 
       - name: Capture terminal screenshots
         if: always()
         run: |
+          set -e
           chmod +x ethical-hacking-lab/capture_terminal.sh
           for f in evidence/display/0*.txt; do
-            [ -f "$f" ] || continue
             base="$(basename "$f" .txt)"
             echo "Capturing $base"
-            timeout 12 ethical-hacking-lab/capture_terminal.sh "$PWD/$f" "$PWD/evidence/screenshots/${base}.png" "$base" || true
+            ethical-hacking-lab/capture_terminal.sh "$PWD/$f" "$PWD/evidence/screenshots/${base}.png" "$base"
           done
-          ls -lh evidence/screenshots || true
+          echo '=== Screenshot files ==='
+          ls -lh evidence/screenshots
+          test "$(find evidence/screenshots -type f -name '*.png' | wc -l)" -eq 8
 
       - name: Build execution summary
         if: always()
         run: |
           {
-            echo '# Ethical Hacking Midterm - Execution Evidence'
+            echo '# Ethical Hacking Midterm - Verified Execution Evidence'
             echo
-            echo 'Active scans were restricted to 127.0.0.1 on the GitHub-hosted runner. Footprinting used passive public sources only.'
+            echo 'Active scans were restricted to 127.0.0.1 on an ephemeral GitHub-hosted Ubuntu runner. Footprinting used passive public sources only.'
             echo
             echo '## Required topics and executed tools'
             echo '- Footprinting: theHarvester, Sublist3r'
@@ -227,10 +264,11 @@ jobs:
             echo '- Vulnerability Scanning: Nikto, Nmap NSE HTTP assessment scripts'
             echo '- Enumeration: smbclient, SnmpWalk'
             echo
-            echo '## Evidence files'
-            for f in evidence/raw/0*.txt; do
-              [ -f "$f" ] && echo "- $(basename "$f")"
-            done
+            echo '## Course-alignment note'
+            echo 'The course Vulnerability Analysis slides explicitly present OpenVAS and Nikto. OpenVAS was not used in this ephemeral runner because a complete Greenbone/OpenVAS scanner requires vulnerability feeds and substantially more persistent resources. Nmap NSE was used as the second practical vulnerability-assessment tool; Nmap is taught in the course scanning module. This substitution must be stated rather than presented as OpenVAS execution.'
+            echo
+            echo '## Evidence integrity'
+            echo 'Raw command output is preserved under raw/. Screenshot images are captures of concise selections from those same outputs; no results were invented.'
           } > evidence/EXECUTION_SUMMARY.md
 
       - name: Upload lab evidence artifact
@@ -241,3 +279,15 @@ jobs:
           path: evidence/
           if-no-files-found: error
           retention-days: 14
+
+      - name: Commit verified evidence to isolated branch
+        if: success()
+        run: |
+          rm -rf ethical-hacking-lab/evidence
+          mkdir -p ethical-hacking-lab/evidence
+          cp -a evidence/. ethical-hacking-lab/evidence/
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add ethical-hacking-lab/evidence
+          git commit -m 'Store verified coursework evidence [skip ci]' || exit 0
+          git push origin HEAD:ethical-hacking-midterm-lab
