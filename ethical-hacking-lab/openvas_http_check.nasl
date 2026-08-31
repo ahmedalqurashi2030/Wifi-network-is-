@@ -1,24 +1,24 @@
 # Safe coursework-only NASL check for the controlled localhost target.
-# It sends an HTTP OPTIONS request to TCP/8080 and reports whether TRACE is advertised.
+# This custom VT connects only to the synthetic TCP/9090 training service.
+# The marker represents a deliberately weak configuration in the lab and is not a real CVE.
 
-port = 8080;
+port = 9090;
 soc = open_sock_tcp(port);
 if (!soc) {
-  display("OpenVAS NASL assessment\n");
-  display("Target TCP/8080 is not reachable.\n");
+  display("OpenVAS NASL assessment of 127.0.0.1:9090\n");
+  display("Target TCP/9090 is not reachable.\n");
   exit(0);
 }
 
-req = "OPTIONS / HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n";
-send(socket:soc, data:req);
-resp = recv(socket:soc, length:4096);
+banner = recv_line(socket:soc, length:2048, timeout:5);
 close(soc);
 
-display("OpenVAS NASL HTTP assessment of 127.0.0.1:8080\n");
-display(resp, "\n");
+display("OpenVAS NASL vulnerability assessment of 127.0.0.1:9090\n");
+display("Observed banner: ", banner, "\n");
 
-if ("TRACE" >< resp) {
-  display("Finding: TRACE is enabled and advertised by the web service.\n");
+if ("CYBERLAB-VULN-TEST" >< banner) {
+  display("Finding: intentionally weak training configuration detected.\n");
+  display("Scope note: synthetic localhost-only finding; not mapped to a real CVE.\n");
 } else {
-  display("Finding: TRACE was not advertised by the web service.\n");
+  display("Finding: training vulnerability marker was not detected.\n");
 }
