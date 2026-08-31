@@ -42,7 +42,6 @@ jobs:
               --unixsocketperm 770
           fi
           sleep 2
-          sudo ls -l /var/run/redis-openvas
           test -S /var/run/redis-openvas/redis-server.sock
           sudo redis-cli -s /var/run/redis-openvas/redis-server.sock ping | grep -q PONG
 
@@ -55,13 +54,18 @@ jobs:
 
       - name: Validate NASL syntax
         run: |
-          sudo openvas-nasl -L -X ethical-hacking-lab/openvas_http_check.nasl
+          set -e
+          SCRIPT="$GITHUB_WORKSPACE/ethical-hacking-lab/openvas_http_check.nasl"
+          test -f "$SCRIPT"
+          ls -l "$SCRIPT"
+          sudo openvas-nasl -L -X "$SCRIPT"
 
       - name: Execute OpenVAS NASL assessment
         run: |
+          SCRIPT="$GITHUB_WORKSPACE/ethical-hacking-lab/openvas_http_check.nasl"
           {
-            echo '$ sudo openvas-nasl -X -t 127.0.0.1 ethical-hacking-lab/openvas_http_check.nasl'
-            sudo openvas-nasl -X -t 127.0.0.1 ethical-hacking-lab/openvas_http_check.nasl
+            echo '$ sudo openvas-nasl -X -t 127.0.0.1 openvas_http_check.nasl'
+            sudo openvas-nasl -X -t 127.0.0.1 "$SCRIPT"
           } 2>&1 | tee 06_vulnerability_openvas.txt
 
       - name: Capture real terminal evidence
