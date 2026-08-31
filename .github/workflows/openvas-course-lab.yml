@@ -25,8 +25,26 @@ jobs:
         run: |
           sudo apt-get update
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-            openvas-scanner xvfb xterm scrot fonts-dejavu-core
+            openvas-scanner redis-server redis-tools xvfb xterm scrot fonts-dejavu-core
           openvas-nasl -V | tee openvas_version.txt
+
+      - name: Start OpenVAS Redis backend
+        run: |
+          set -e
+          sudo mkdir -p /var/run/redis-openvas
+          sudo chown redis:redis /var/run/redis-openvas
+          if [ -f /etc/redis/redis-openvas.conf ]; then
+            sudo redis-server /etc/redis/redis-openvas.conf --daemonize yes
+          else
+            sudo redis-server --daemonize yes \
+              --port 0 \
+              --unixsocket /var/run/redis-openvas/redis-server.sock \
+              --unixsocketperm 770
+          fi
+          sleep 2
+          sudo ls -l /var/run/redis-openvas
+          test -S /var/run/redis-openvas/redis-server.sock
+          sudo redis-cli -s /var/run/redis-openvas/redis-server.sock ping | grep -q PONG
 
       - name: Start controlled localhost web target
         run: |
@@ -37,7 +55,7 @@ jobs:
 
       - name: Validate NASL syntax
         run: |
-          openvas-nasl -L -X ethical-hacking-lab/openvas_http_check.nasl
+          sudo openvas-nasl -L -X ethical-hacking-lab/openvas_http_check.nasl
 
       - name: Execute OpenVAS NASL assessment
         run: |
