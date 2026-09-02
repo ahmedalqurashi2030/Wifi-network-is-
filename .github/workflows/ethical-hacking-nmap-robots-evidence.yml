@@ -1,0 +1,58 @@
+name: Ethical Hacking Nmap NSE Web Evidence
+
+on:
+  push:
+    branches:
+      - ethical-hacking-midterm-lab
+    paths:
+      - '.github/workflows/ethical-hacking-nmap-robots-evidence.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nmap-web-evidence:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nmap xvfb xterm scrot fonts-dejavu-core
+
+      - name: Start controlled localhost web target
+        run: |
+          python3 ethical-hacking-lab/http_target.py > /tmp/http_target.log 2>&1 &
+          echo $! > /tmp/http_target.pid
+          sleep 2
+          curl -fsS http://127.0.0.1:8080/ >/dev/null
+
+      - name: Run Nmap NSE title and robots checks
+        run: |
+          {
+            echo '$ sudo nmap -sV -p 8080 --script http-title,http-robots.txt 127.0.0.1'
+            sudo nmap -sV -p 8080 --script http-title,http-robots.txt 127.0.0.1
+          } 2>&1 | tee 08_vulnerability_nmap_nse_web.txt
+
+      - name: Capture terminal screenshot
+        run: |
+          chmod +x ethical-hacking-lab/capture_terminal.sh
+          ethical-hacking-lab/capture_terminal.sh \
+            "$PWD/08_vulnerability_nmap_nse_web.txt" \
+            "$PWD/08_vulnerability_nmap_nse_web.png" \
+            "08_vulnerability_nmap_nse_web"
+          test -s 08_vulnerability_nmap_nse_web.png
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: ethical-hacking-nmap-nse-web-evidence
+          path: |
+            08_vulnerability_nmap_nse_web.txt
+            08_vulnerability_nmap_nse_web.png
+          if-no-files-found: error
+          retention-days: 14
