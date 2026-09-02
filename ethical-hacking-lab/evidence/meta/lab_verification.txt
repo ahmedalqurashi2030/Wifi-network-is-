@@ -1,13 +1,13 @@
 === Local lab listeners ===
-udp   UNCONN 0      0            127.0.0.1:161       0.0.0.0:*    users:(("snmpd",pid=4695,fd=6))          
-tcp   LISTEN 0      50           127.0.0.1:445       0.0.0.0:*    users:(("smbd",pid=4684,fd=29))          
-tcp   LISTEN 0      20           127.0.0.1:2222      0.0.0.0:*    users:(("python3",pid=4664,fd=3))        
-tcp   LISTEN 0      5            127.0.0.1:8080      0.0.0.0:*    users:(("python3",pid=4664,fd=5))        
+udp   UNCONN 0      0            127.0.0.1:161       0.0.0.0:*    users:(("snmpd",pid=4557,fd=6))          
+tcp   LISTEN 0      20           127.0.0.1:2222      0.0.0.0:*    users:(("python3",pid=4526,fd=3))        
+tcp   LISTEN 0      50           127.0.0.1:445       0.0.0.0:*    users:(("smbd",pid=4546,fd=29))          
+tcp   LISTEN 0      5            127.0.0.1:8080      0.0.0.0:*    users:(("python3",pid=4526,fd=5))        
 
 === HTTP check ===
 HTTP/1.0 200 OK
 Server: Apache/2.2.8 (Ubuntu) DAV/2
-Date: Mon, 31 Aug 2026 23:35:27 GMT
+Date: Wed, 02 Sep 2026 01:28:49 GMT
 Content-Type: text/html; charset=utf-8
 X-Powered-By: PHP/5.2.4-2ubuntu5.10
 Content-Length: 0

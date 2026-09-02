@@ -2,8 +2,8 @@ $ sudo hping3 -S -p 8080 -c 3 127.0.0.1
 
 --- 127.0.0.1 hping statistic ---
 3 packets transmitted, 3 packets received, 0% packet loss
-round-trip min/avg/max = 0.7/1.2/1.9 ms
+round-trip min/avg/max = 0.6/1.4/1.8 ms
 HPING 127.0.0.1 (lo 127.0.0.1): S set, 40 headers + 0 data bytes
-len=44 ip=127.0.0.1 ttl=64 DF id=0 sport=8080 flags=SA seq=0 win=65495 rtt=1.9 ms
-len=44 ip=127.0.0.1 ttl=64 DF id=0 sport=8080 flags=SA seq=1 win=65495 rtt=0.8 ms
-len=44 ip=127.0.0.1 ttl=64 DF id=0 sport=8080 flags=SA seq=2 win=65495 rtt=0.7 ms
+len=44 ip=127.0.0.1 ttl=64 DF id=0 sport=8080 flags=SA seq=0 win=65495 rtt=1.8 ms
+len=44 ip=127.0.0.1 ttl=64 DF id=0 sport=8080 flags=SA seq=1 win=65495 rtt=1.7 ms
+len=44 ip=127.0.0.1 ttl=64 DF id=0 sport=8080 flags=SA seq=2 win=65495 rtt=0.6 ms
