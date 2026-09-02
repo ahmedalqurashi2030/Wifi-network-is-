@@ -36,6 +36,7 @@ $ python3 sublist3r.py -d nmap.org -t 10
 [92m[-] Searching now in SSL Certificates..[0m
 [92m[-] Searching now in PassiveDNS..[0m
 Process DNSdumpster-8:
+[91m[!] Error: Virustotal probably now is blocking our requests[0m
 Traceback (most recent call last):
   File "/usr/lib/python3.12/multiprocessing/process.py", line 314, in _bootstrap
     self.run()
@@ -49,7 +50,6 @@ Traceback (most recent call last):
     token = csrf_regex.findall(resp)[0]
             ~~~~~~~~~~~~~~~~~~~~~~~~^^^
 IndexError: list index out of range
-[91m[!] Error: Virustotal probably now is blocking our requests[0m
 [93m[-] Total Unique Subdomains Found: 2[0m
 [92mscanme.nmap.org[0m
 [92msvn.nmap.org[0m
