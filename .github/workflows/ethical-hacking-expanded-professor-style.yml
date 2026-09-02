@@ -1,0 +1,281 @@
+name: Ethical Hacking Expanded Professor Style Evidence
+
+on:
+  push:
+    branches:
+      - ethical-hacking-midterm-lab
+    paths:
+      - '.github/workflows/ethical-hacking-expanded-professor-style.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  expanded-lab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare evidence folders
+        run: |
+          rm -rf expanded-evidence
+          mkdir -p expanded-evidence/raw expanded-evidence/display expanded-evidence/screenshots expanded-evidence/meta
+          {
+            echo "Ethical Hacking Assessment - Controlled Practical Lab"
+            echo "Date (UTC): $(date -u '+%Y-%m-%d %H:%M:%S')"
+            echo "Scope: active scanning restricted to 127.0.0.1; footprinting uses passive public sources only"
+          } > expanded-evidence/meta/environment.txt
+
+      - name: Install course tools
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
+            nmap hping3 nikto samba smbclient snmp snmpd \
+            xvfb xterm scrot fonts-dejavu-core \
+            python3-pip python3-venv git curl
+
+      - name: Install footprinting tools
+        run: |
+          set -e
+          git clone --depth 1 https://github.com/aboul3la/Sublist3r.git /tmp/Sublist3r
+          python3 -m venv /tmp/sublist3r-venv
+          source /tmp/sublist3r-venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -r /tmp/Sublist3r/requirements.txt
+          deactivate
+
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          git clone --depth 1 https://github.com/laramies/theHarvester.git /tmp/theHarvester
+          cd /tmp/theHarvester
+          uv sync --python 3.14
+
+      - name: Build localhost-only target
+        run: |
+          set -e
+          python3 ethical-hacking-lab/http_target.py > expanded-evidence/raw/http_target_service.log 2>&1 &
+          echo $! > /tmp/http_target.pid
+
+          sudo systemctl stop smbd nmbd samba-ad-dc 2>/dev/null || true
+          sudo pkill -x smbd 2>/dev/null || true
+          sudo pkill -x nmbd 2>/dev/null || true
+          sudo mkdir -p /tmp/cyberlab-share
+          echo "Authorized coursework share - synthetic data only" | sudo tee /tmp/cyberlab-share/README.txt >/dev/null
+          echo "Enumeration practice file" | sudo tee /tmp/cyberlab-share/notes.txt >/dev/null
+          sudo chmod -R 755 /tmp/cyberlab-share
+          cat > /tmp/smb-lab.conf <<'EOF'
+          [global]
+            workgroup = WORKGROUP
+            server string = CEH Controlled SMB Lab
+            server role = standalone server
+            security = user
+            map to guest = Bad User
+            guest account = nobody
+            interfaces = 127.0.0.1/8
+            bind interfaces only = yes
+            smb ports = 445
+            disable netbios = yes
+            load printers = no
+            disable spoolss = yes
+            printcap name = /dev/null
+            log file = /tmp/smb-lab.log
+            logging = file
+
+          [public]
+            path = /tmp/cyberlab-share
+            browseable = yes
+            guest ok = yes
+            read only = yes
+          EOF
+          sudo smbd -D -s /tmp/smb-lab.conf
+
+          sudo systemctl stop snmpd 2>/dev/null || true
+          sudo pkill -x snmpd 2>/dev/null || true
+          cat > /tmp/snmpd-lab.conf <<'EOF'
+          agentAddress udp:127.0.0.1:161
+          rocommunity public 127.0.0.1
+          sysLocation Controlled Ethical Hacking Lab
+          sysContact coursework@cyberlab.local
+          sysName CEH-Lab-Target
+          EOF
+          sudo /usr/sbin/snmpd -f -Lo -C -c /tmp/snmpd-lab.conf > expanded-evidence/raw/snmpd_service.log 2>&1 &
+          echo $! > /tmp/snmpd.pid
+
+          sleep 3
+          curl -fsS http://127.0.0.1:8080/ >/dev/null
+          smbclient -L //127.0.0.1 -N -p 445 | grep -q public
+          snmpwalk -v2c -c public 127.0.0.1 1.3.6.1.2.1.1.5.0 | grep -q CEH-Lab-Target
+
+      - name: 01 Footprinting theHarvester
+        continue-on-error: true
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          cd /tmp/theHarvester
+          {
+            echo '$ uv run theHarvester -d nmap.org -b crtsh,certspotter --limit 30'
+            timeout 300 uv run theHarvester -d nmap.org -b crtsh,certspotter --limit 30
+          } 2>&1 | tee "$GITHUB_WORKSPACE/expanded-evidence/raw/01_footprinting_theharvester.txt"
+
+      - name: 02 Footprinting Sublist3r
+        continue-on-error: true
+        run: |
+          source /tmp/sublist3r-venv/bin/activate
+          {
+            echo '$ python3 sublist3r.py -d nmap.org -t 10'
+            timeout 300 python3 /tmp/Sublist3r/sublist3r.py -d nmap.org -t 10
+          } 2>&1 | tee expanded-evidence/raw/02_footprinting_sublist3r.txt
+          deactivate
+
+      - name: 03 Nmap host discovery
+        run: |
+          {
+            echo '$ sudo nmap -sn 127.0.0.1'
+            sudo nmap -sn 127.0.0.1
+          } 2>&1 | tee expanded-evidence/raw/03_scanning_nmap_host_discovery.txt
+
+      - name: 04 Nmap service scan
+        run: |
+          {
+            echo '$ sudo nmap -sS -sV -p 445,8080,2222 127.0.0.1'
+            sudo nmap -sS -sV -p 445,8080,2222 127.0.0.1
+          } 2>&1 | tee expanded-evidence/raw/04_scanning_nmap_services.txt
+
+      - name: 05 Hping3 SYN test
+        run: |
+          {
+            echo '$ sudo hping3 -S -p 8080 -c 3 127.0.0.1'
+            sudo hping3 -S -p 8080 -c 3 127.0.0.1
+          } 2>&1 | tee expanded-evidence/raw/05_scanning_hping_syn.txt
+
+      - name: 06 Hping3 ACK test
+        run: |
+          {
+            echo '$ sudo hping3 -A -p 8080 -c 3 127.0.0.1'
+            sudo hping3 -A -p 8080 -c 3 127.0.0.1
+          } 2>&1 | tee expanded-evidence/raw/06_scanning_hping_ack.txt
+
+      - name: 07 Vulnerability Nmap NSE HTTP methods and headers
+        run: |
+          {
+            echo '$ sudo nmap -sV -p 8080 --script http-methods,http-headers 127.0.0.1'
+            sudo nmap -sV -p 8080 --script http-methods,http-headers 127.0.0.1
+          } 2>&1 | tee expanded-evidence/raw/07_vulnerability_nmap_nse_methods.txt
+
+      - name: 08 Vulnerability Nmap NSE HTTP enum
+        continue-on-error: true
+        run: |
+          {
+            echo '$ sudo nmap -p 8080 --script http-enum 127.0.0.1'
+            sudo nmap -p 8080 --script http-enum 127.0.0.1
+          } 2>&1 | tee expanded-evidence/raw/08_vulnerability_nmap_nse_enum.txt
+
+      - name: 09 Vulnerability Nikto full web check
+        continue-on-error: true
+        run: |
+          {
+            echo '$ timeout 120 nikto -h http://127.0.0.1:8080 -ask no'
+            timeout 120 nikto -h http://127.0.0.1:8080 -ask no
+          } 2>&1 | tee expanded-evidence/raw/09_vulnerability_nikto_full.txt
+
+      - name: 10 Vulnerability Nikto tuning 2
+        continue-on-error: true
+        run: |
+          {
+            echo '$ timeout 120 nikto -h http://127.0.0.1:8080 -Tuning 2 -ask no'
+            timeout 120 nikto -h http://127.0.0.1:8080 -Tuning 2 -ask no
+          } 2>&1 | tee expanded-evidence/raw/10_vulnerability_nikto_tuning2.txt
+
+      - name: 11 Enumeration smbclient list shares
+        run: |
+          {
+            echo '$ smbclient -L //127.0.0.1 -N -p 445'
+            smbclient -L //127.0.0.1 -N -p 445
+          } 2>&1 | tee expanded-evidence/raw/11_enumeration_smbclient_shares.txt
+
+      - name: 12 Enumeration smbclient inspect public share
+        run: |
+          {
+            echo "$ smbclient //127.0.0.1/public -N -p 445 -c 'pwd; ls'"
+            smbclient //127.0.0.1/public -N -p 445 -c 'pwd; ls'
+          } 2>&1 | tee expanded-evidence/raw/12_enumeration_smbclient_public.txt
+
+      - name: 13 Enumeration SnmpWalk system subtree
+        run: |
+          {
+            echo '$ snmpwalk -v2c -c public 127.0.0.1 1.3.6.1.2.1.1'
+            snmpwalk -v2c -c public 127.0.0.1 1.3.6.1.2.1.1
+          } 2>&1 | tee expanded-evidence/raw/13_enumeration_snmpwalk_system.txt
+
+      - name: 14 Enumeration SnmpWalk specific system values
+        run: |
+          {
+            echo '$ snmpwalk -v2c -c public 127.0.0.1 1.3.6.1.2.1.1.5.0'
+            snmpwalk -v2c -c public 127.0.0.1 1.3.6.1.2.1.1.5.0
+            echo
+            echo '$ snmpwalk -v2c -c public 127.0.0.1 1.3.6.1.2.1.1.4.0'
+            snmpwalk -v2c -c public 127.0.0.1 1.3.6.1.2.1.1.4.0
+            echo
+            echo '$ snmpwalk -v2c -c public 127.0.0.1 1.3.6.1.2.1.1.6.0'
+            snmpwalk -v2c -c public 127.0.0.1 1.3.6.1.2.1.1.6.0
+          } 2>&1 | tee expanded-evidence/raw/14_enumeration_snmpwalk_values.txt
+
+      - name: Prepare concise evidence text
+        if: always()
+        run: |
+          set +e
+          strip_ansi() { sed -r 's/\x1B\[[0-9;?]*[ -\/]*[@-~]//g'; }
+
+          {
+            sed -n '1p' expanded-evidence/raw/01_footprinting_theharvester.txt
+            strip_ansi < expanded-evidence/raw/01_footprinting_theharvester.txt | grep -E '^\[\*\] (Activity|Target|Hosts found)|^[A-Za-z0-9.-]+\.nmap\.org$' || true
+          } > expanded-evidence/display/01_footprinting_theharvester.txt
+
+          {
+            sed -n '1p' expanded-evidence/raw/02_footprinting_sublist3r.txt
+            strip_ansi < expanded-evidence/raw/02_footprinting_sublist3r.txt | grep -E 'Enumerating subdomains|Total Unique Subdomains Found|^[A-Za-z0-9.-]+\.nmap\.org$' || true
+          } > expanded-evidence/display/02_footprinting_sublist3r.txt
+
+          cp expanded-evidence/raw/03_scanning_nmap_host_discovery.txt expanded-evidence/display/03_scanning_nmap_host_discovery.txt
+          cp expanded-evidence/raw/04_scanning_nmap_services.txt expanded-evidence/display/04_scanning_nmap_services.txt
+          cp expanded-evidence/raw/05_scanning_hping_syn.txt expanded-evidence/display/05_scanning_hping_syn.txt
+          cp expanded-evidence/raw/06_scanning_hping_ack.txt expanded-evidence/display/06_scanning_hping_ack.txt
+          cp expanded-evidence/raw/07_vulnerability_nmap_nse_methods.txt expanded-evidence/display/07_vulnerability_nmap_nse_methods.txt
+          cp expanded-evidence/raw/08_vulnerability_nmap_nse_enum.txt expanded-evidence/display/08_vulnerability_nmap_nse_enum.txt
+
+          grep -E '^\$|^- Nikto|Target IP:|Target Hostname:|Target Port:|Server:|x-powered-by|X-Frame-Options|robots\.txt|appears to be outdated|Allowed HTTP Methods|OSVDB-3092|items checked|host\(s\) tested|/admin/' expanded-evidence/raw/09_vulnerability_nikto_full.txt > expanded-evidence/display/09_vulnerability_nikto_full.txt || true
+          grep -E '^\$|^- Nikto|Target IP:|Target Hostname:|Target Port:|Server:|X-Frame-Options|robots\.txt|appears to be outdated|Allowed HTTP Methods|OSVDB-3092|items checked|host\(s\) tested|/admin/' expanded-evidence/raw/10_vulnerability_nikto_tuning2.txt > expanded-evidence/display/10_vulnerability_nikto_tuning2.txt || true
+
+          cp expanded-evidence/raw/11_enumeration_smbclient_shares.txt expanded-evidence/display/11_enumeration_smbclient_shares.txt
+          cp expanded-evidence/raw/12_enumeration_smbclient_public.txt expanded-evidence/display/12_enumeration_smbclient_public.txt
+          sed -n '1,15p' expanded-evidence/raw/13_enumeration_snmpwalk_system.txt > expanded-evidence/display/13_enumeration_snmpwalk_system.txt
+          cp expanded-evidence/raw/14_enumeration_snmpwalk_values.txt expanded-evidence/display/14_enumeration_snmpwalk_values.txt
+
+          for f in expanded-evidence/display/*.txt; do
+            strip_ansi < "$f" > "$f.clean"
+            mv "$f.clean" "$f"
+          done
+
+      - name: Capture terminal screenshots
+        if: always()
+        run: |
+          set -e
+          chmod +x ethical-hacking-lab/capture_terminal.sh
+          for f in expanded-evidence/display/*.txt; do
+            base="$(basename "$f" .txt)"
+            ethical-hacking-lab/capture_terminal.sh "$PWD/$f" "$PWD/expanded-evidence/screenshots/${base}.png" "$base"
+          done
+          ls -lh expanded-evidence/screenshots
+          test "$(find expanded-evidence/screenshots -type f -name '*.png' | wc -l)" -eq 14
+
+      - name: Upload expanded evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ethical-hacking-expanded-professor-style-evidence
+          path: expanded-evidence/
+          if-no-files-found: error
+          retention-days: 14
